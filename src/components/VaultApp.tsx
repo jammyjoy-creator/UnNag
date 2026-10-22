@@ -65,6 +65,15 @@ export function VaultApp() {
     })();
   }, [reload]);
 
+  // Poll inbox so B sees A's drops without needing push/cron
+  useEffect(() => {
+    if (!userId) return;
+    const id = window.setInterval(() => {
+      void reload();
+    }, 4000);
+    return () => window.clearInterval(id);
+  }, [userId, reload]);
+
   useEffect(() => {
     if (inviteParam) setTab("invite");
   }, [inviteParam]);
@@ -85,12 +94,14 @@ export function VaultApp() {
   }, []);
 
   useEffect(() => {
-    if (!connectionId) return;
+    if (!connectionId || !userId) return;
     void listMembers(connectionId).then((m) => {
       setMembers(m);
-      setAssigneeId((prev) => (m.some((x) => x.id === prev) ? prev : (m[0]?.id ?? "")));
+      // Default to the *other* person — not yourself
+      const other = m.find((x) => x.id !== userId) ?? m[0];
+      setAssigneeId((prev) => (m.some((x) => x.id === prev) ? prev : (other?.id ?? "")));
     });
-  }, [connectionId]);
+  }, [connectionId, userId]);
 
   const enablePush = async () => {
     if (!("Notification" in window) || !("serviceWorker" in navigator)) {
@@ -161,8 +172,8 @@ export function VaultApp() {
       setUrgent(false);
       setMsg(
         urgent
-          ? "Urgent drop queued — overlay fires on delivery."
-          : "Queued for their next quiet window.",
+          ? "Urgent drop delivered — have them refresh Inbox on /vault."
+          : "Sent. If outside their quiet window it waits; otherwise it lands in their Inbox.",
       );
       setTab("inbox");
       await reload();
