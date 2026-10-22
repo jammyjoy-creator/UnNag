@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f4f1ec;
+  color: #12151a;
+}
+
+::selection {
+  background: rgba(196, 92, 38, 0.25);
+}
