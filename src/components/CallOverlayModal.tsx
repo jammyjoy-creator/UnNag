@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { acceptTask, snoozeTask } from "@/lib/api";
+import { acceptTask, markTaskSeen, snoozeTask } from "@/lib/api";
 import type { Task } from "@/lib/types";
 
 type Props = {
@@ -16,6 +16,10 @@ export function CallOverlayModal({ task, vaultCount, onClose, onChanged }: Props
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const creator = task.creator?.full_name ?? "Someone";
+
+  useEffect(() => {
+    void markTaskSeen(task.id);
+  }, [task.id]);
 
   useEffect(() => {
     const ctx = new AudioContext();

@@ -23,6 +23,9 @@ Deno.serve(async (req) => {
   try {
     const supabase = adminClient();
     const now = new Date();
+    // Daily reminders + 24h history wipe + release queued
+    await supabase.rpc("run_drop_maintenance");
+
     const released = await releaseDueTasks(supabase, now);
     const escalated = await escalateUnacked(supabase, now);
     return json({

@@ -1,7 +1,13 @@
 "use client";
 
 import { createClient, MAX_VOICE_SECONDS } from "./supabase";
-import type { Connection, ConnectionType, Profile, Task } from "./types";
+import type {
+  Connection,
+  ConnectionType,
+  Profile,
+  RecurringDrop,
+  Task,
+} from "./types";
 
 const supabase = () => createClient();
 
@@ -181,8 +187,95 @@ export async function completeTask(taskId: string) {
     .update({
       status: "completed",
       acknowledged_at: new Date().toISOString(),
+      seen_at: new Date().toISOString(),
     })
     .eq("id", taskId);
+}
+
+export async function markTaskSeen(taskId: string) {
+  return supabase().rpc("mark_task_seen", { task_id: taskId });
+}
+
+/** Sent + received activity from the last 24 hours (auto-clears older in DB). */
+export async function historyTasks(): Promise<Task[]> {
+  const user = await getSessionUser();
+  if (!user) return [];
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase()
+    .from("tasks")
+    .select(
+      `*,
+       creator:profiles!tasks_creator_id_fkey(full_name),
+       assignee:profiles!tasks_assignee_id_fkey(full_name)`,
+    )
+    .or(`creator_id.eq.${user.id},assignee_id.eq.${user.id}`)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as Task[];
+}
+
+export async function createRecurringDrop(input: {
+  connection_id: string;
+  assignee_id: string;
+  title: string;
+  time_of_day: string;
+  timezone: string;
+  voice_note_url?: string | null;
+  voice_duration_seconds?: number | null;
+  is_urgent?: boolean;
+}) {
+  const user = await getSessionUser();
+  if (!user) throw new Error("Not signed in");
+
+  const seconds =
+    input.voice_duration_seconds == null
+      ? null
+      : Math.min(MAX_VOICE_SECONDS, Math.max(1, Math.round(input.voice_duration_seconds)));
+
+  const { data, error } = await supabase()
+    .from("recurring_drops")
+    .insert({
+      connection_id: input.connection_id,
+      creator_id: user.id,
+      assignee_id: input.assignee_id,
+      title: input.title.trim(),
+      time_of_day: input.time_of_day,
+      timezone: input.timezone,
+      voice_note_url: input.voice_note_url ?? null,
+      voice_duration_seconds: seconds,
+      is_urgent: input.is_urgent ?? true,
+      enabled: true,
+    })
+    .select("*, assignee:profiles!recurring_drops_assignee_id_fkey(full_name)")
+    .single();
+  if (error) throw error;
+  return data as RecurringDrop;
+}
+
+export async function listRecurringDrops(): Promise<RecurringDrop[]> {
+  const user = await getSessionUser();
+  if (!user) return [];
+  // RLS: any household member can see shared recurring drops
+  const { data, error } = await supabase()
+    .from("recurring_drops")
+    .select("*, assignee:profiles!recurring_drops_assignee_id_fkey(full_name)")
+    .order("time_of_day", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as RecurringDrop[];
+}
+
+export async function setRecurringEnabled(id: string, enabled: boolean) {
+  return supabase().from("recurring_drops").update({ enabled }).eq("id", id);
+}
+
+export async function deleteRecurringDrop(id: string) {
+  return supabase().from("recurring_drops").delete().eq("id", id);
+}
+
+/** Spawns due daily reminders, releases queued, deletes >24h history. */
+export async function runDropMaintenance() {
+  return supabase().rpc("run_drop_maintenance");
 }
 
 export async function savePushSubscription(sub: PushSubscription) {

@@ -3,16 +3,21 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { CallOverlayModal } from "@/components/CallOverlayModal";
+import { HistoryList } from "@/components/HistoryList";
 import { InstallBanner } from "@/components/InstallBanner";
 import { PartnerInvite } from "@/components/PartnerInvite";
+import { RecurringPanel } from "@/components/RecurringPanel";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
 import {
   completeTask,
   createTask,
   getSessionUser,
   getTask,
+  historyTasks,
   listConnections,
   listMembers,
+  markTaskSeen,
+  runDropMaintenance,
   savePushSubscription,
   signIn,
   signOut,
@@ -30,8 +35,11 @@ export function VaultApp() {
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [vault, setVault] = useState<Task[]>([]);
+  const [history, setHistory] = useState<Task[]>([]);
   const [overlay, setOverlay] = useState<Task | null>(null);
-  const [tab, setTab] = useState<"inbox" | "compose" | "invite">("inbox");
+  const [tab, setTab] = useState<
+    "inbox" | "compose" | "history" | "daily" | "invite"
+  >("inbox");
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -49,9 +57,13 @@ export function VaultApp() {
   const [msg, setMsg] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    const tasks = await vaultTasks();
+    const [tasks, hist, conns] = await Promise.all([
+      vaultTasks(),
+      historyTasks(),
+      listConnections(),
+    ]);
     setVault(tasks);
-    const conns = await listConnections();
+    setHistory(hist);
     setConnections(conns);
     if (conns[0] && !connectionId) setConnectionId(conns[0].id);
   }, [connectionId]);
@@ -61,7 +73,11 @@ export function VaultApp() {
       const user = await getSessionUser();
       setUserId(user?.id ?? null);
       setLoading(false);
-      if (user) await reload();
+      if (user) {
+        // Spawn due daily reminders + purge >24h history (no-op until SQL migration runs)
+        void runDropMaintenance().catch(() => undefined);
+        await reload();
+      }
     })();
   }, [reload]);
 
@@ -175,13 +191,18 @@ export function VaultApp() {
           ? "Urgent drop delivered — have them refresh Inbox on /vault."
           : "Sent. If outside their quiet window it waits; otherwise it lands in their Inbox.",
       );
-      setTab("inbox");
+      setTab("history");
       await reload();
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Failed to send");
     } finally {
       setBusy(false);
     }
+  };
+
+  const openDrop = (t: Task) => {
+    setOverlay(t);
+    void markTaskSeen(t.id).then(() => void reload());
   };
 
   if (loading) {
@@ -273,11 +294,13 @@ export function VaultApp() {
         </div>
       </header>
 
-      <nav className="mb-5 flex gap-2">
+      <nav className="mb-5 flex flex-wrap gap-2">
         {(
           [
             ["inbox", "Inbox"],
             ["compose", "New drop"],
+            ["history", "History"],
+            ["daily", "Daily"],
             ["invite", "Partner"],
           ] as const
         ).map(([id, label]) => (
@@ -315,7 +338,7 @@ export function VaultApp() {
                 <button
                   type="button"
                   className="min-w-0 flex-1 text-left"
-                  onClick={() => setOverlay(t)}
+                  onClick={() => openDrop(t)}
                 >
                   <p className="truncate font-semibold">{t.title}</p>
                   <p className="text-sm text-ink/50">
@@ -334,6 +357,23 @@ export function VaultApp() {
             ))
           )}
         </div>
+      )}
+
+      {tab === "history" && userId && (
+        <HistoryList tasks={history} userId={userId} />
+      )}
+
+      {tab === "daily" && userId && (
+        <RecurringPanel
+          userId={userId}
+          connections={connections}
+          members={members}
+          connectionId={connectionId}
+          assigneeId={assigneeId}
+          onConnectionChange={setConnectionId}
+          onAssigneeChange={setAssigneeId}
+          onChanged={() => void reload()}
+        />
       )}
 
       {tab === "compose" && (
