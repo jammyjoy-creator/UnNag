@@ -10,6 +10,8 @@
 # env
 .env
 .env*.local
+.env.vercel
+.env.secrets.local
 !.env.example
 
 # debug / os

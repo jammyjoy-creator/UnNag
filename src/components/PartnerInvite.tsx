@@ -28,7 +28,13 @@ export function PartnerInvite({ onReady }: Props) {
       setMsg("Household created. Share the code with your partner.");
       onReady?.();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Could not create household");
+      const message =
+        e && typeof e === "object" && "message" in e
+          ? String((e as { message: string }).message)
+          : e instanceof Error
+            ? e.message
+            : "Could not create household";
+      setMsg(message);
     } finally {
       setBusy(false);
     }

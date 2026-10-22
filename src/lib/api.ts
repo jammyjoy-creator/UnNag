@@ -53,19 +53,12 @@ export async function createConnection(name: string, type: ConnectionType) {
   const user = await getSessionUser();
   if (!user) throw new Error("Not signed in");
 
-  const { data: conn, error } = await supabase()
-    .from("connections")
-    .insert({ name, type })
-    .select()
-    .single();
-  if (error) throw error;
-
-  const { error: memErr } = await supabase().from("connection_members").insert({
-    connection_id: conn.id,
-    user_id: user.id,
-    role: "owner",
+  // RPC bypasses RLS chicken-and-egg (can't SELECT connection until you're a member)
+  const { data: conn, error } = await supabase().rpc("create_household", {
+    p_name: name,
+    p_type: type,
   });
-  if (memErr) throw memErr;
+  if (error) throw error;
   return conn as Connection;
 }
 
@@ -73,19 +66,10 @@ export async function joinConnection(inviteCode: string) {
   const user = await getSessionUser();
   if (!user) throw new Error("Not signed in");
 
-  const { data: conn, error } = await supabase()
-    .from("connections")
-    .select("*")
-    .eq("invite_code", inviteCode.trim().toLowerCase())
-    .single();
-  if (error) throw error;
-
-  const { error: memErr } = await supabase().from("connection_members").upsert({
-    connection_id: conn.id,
-    user_id: user.id,
-    role: "member",
+  const { data: conn, error } = await supabase().rpc("join_household", {
+    p_code: inviteCode.trim().toLowerCase(),
   });
-  if (memErr) throw memErr;
+  if (error) throw error;
   return conn as Connection;
 }
 
